@@ -133,6 +133,8 @@ def analyze_short_term(ticker):
         bearish_points += 1
 
     if latest["RSI7"] >= 55:
-        bullish_points += 1
+    bullish_points += 1
 
-    elif latest["RSI
+elif latest["RSI7"] <= 45:
+    bearish_points += 1
+
