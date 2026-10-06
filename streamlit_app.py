@@ -1,6 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import time
 from datetime import datetime
 
 st.set_page_config(
@@ -19,28 +20,66 @@ st.write(
 if "signal_log" not in st.session_state:
     st.session_state.signal_log = []
 
+if "observation_log" not in st.session_state:
+    st.session_state.observation_log = []
+
+
+def get_latest_price(ticker):
+    stock = yf.Ticker(ticker)
+
+    try:
+        price = stock.fast_info["last_price"]
+
+        if price is not None:
+            return float(price)
+
+    except Exception:
+        pass
+
+    data = stock.history(
+        period="1d",
+        interval="1m"
+    )
+
+    if data.empty:
+        return None
+
+    return float(data["Close"].iloc[-1])
+
 
 def analyze_ticker(ticker):
-    data = yf.Ticker(ticker).history(period="6mo")
+    data = yf.Ticker(ticker).history(
+        period="6mo"
+    )
 
     if data.empty or len(data) < 30:
         return None
 
     close = data["Close"]
 
-    # Moving averages
     data["SMA5"] = close.rolling(5).mean()
     data["SMA10"] = close.rolling(10).mean()
 
-    # RSI 14
     delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
+
+    gain = (
+        delta.clip(lower=0)
+        .rolling(14)
+        .mean()
+    )
+
+    loss = (
+        -delta.clip(upper=0)
+        .rolling(14)
+        .mean()
+    )
 
     rs = gain / loss
-    data["RSI"] = 100 - (100 / (1 + rs))
 
-    # MACD
+    data["RSI"] = (
+        100 - (100 / (1 + rs))
+    )
+
     ema12 = close.ewm(
         span=12,
         adjust=False
@@ -53,13 +92,18 @@ def analyze_ticker(ticker):
 
     data["MACD"] = ema12 - ema26
 
-    data["MACD_SIGNAL"] = data["MACD"].ewm(
-        span=9,
-        adjust=False
-    ).mean()
+    data["MACD_SIGNAL"] = (
+        data["MACD"]
+        .ewm(
+            span=9,
+            adjust=False
+        )
+        .mean()
+    )
 
-    # Bollinger middle band
-    data["BB_MIDDLE"] = close.rolling(20).mean()
+    data["BB_MIDDLE"] = (
+        close.rolling(20).mean()
+    )
 
     clean_data = data.dropna()
 
@@ -68,61 +112,72 @@ def analyze_ticker(ticker):
 
     latest = clean_data.iloc[-1]
 
-    bullish_points = 0
+    bullish_score = 0
 
-    # Indicator 1: short trend
     sma_bullish = (
-        latest["SMA5"] >
-        latest["SMA10"]
+        latest["SMA5"]
+        > latest["SMA10"]
     )
 
-    if sma_bullish:
-        bullish_points += 25
-
-    # Indicator 2: RSI momentum
     rsi_bullish = (
         latest["RSI"] > 50
     )
 
-    if rsi_bullish:
-        bullish_points += 25
-
-    # Indicator 3: MACD momentum
     macd_bullish = (
-        latest["MACD"] >
-        latest["MACD_SIGNAL"]
+        latest["MACD"]
+        > latest["MACD_SIGNAL"]
     )
+
+    price_bullish = (
+        latest["Close"]
+        > latest["BB_MIDDLE"]
+    )
+
+    if sma_bullish:
+        bullish_score += 25
+
+    if rsi_bullish:
+        bullish_score += 25
 
     if macd_bullish:
-        bullish_points += 25
-
-    # Indicator 4: price trend
-    price_bullish = (
-        latest["Close"] >
-        latest["BB_MIDDLE"]
-    )
+        bullish_score += 25
 
     if price_bullish:
-        bullish_points += 25
+        bullish_score += 25
 
-    bullish_score = bullish_points
-    bearish_score = 100 - bullish_score
+    bearish_score = (
+        100 - bullish_score
+    )
 
     if bullish_score >= 75:
-        paper_bias = "PAPER BULLISH ALIGNMENT"
+        paper_bias = (
+            "PAPER BULLISH ALIGNMENT"
+        )
 
     elif bearish_score >= 75:
-        paper_bias = "PAPER BEARISH ALIGNMENT"
+        paper_bias = (
+            "PAPER BEARISH ALIGNMENT"
+        )
 
     else:
-        paper_bias = "MIXED / NEUTRAL"
+        paper_bias = (
+            "MIXED / NEUTRAL"
+        )
 
     return {
         "ticker": ticker,
-        "price": latest["Close"],
-        "rsi": latest["RSI"],
-        "macd": latest["MACD"],
-        "macd_signal": latest["MACD_SIGNAL"],
+        "price": float(
+            latest["Close"]
+        ),
+        "rsi": float(
+            latest["RSI"]
+        ),
+        "macd": float(
+            latest["MACD"]
+        ),
+        "macd_signal": float(
+            latest["MACD_SIGNAL"]
+        ),
         "bullish_score": bullish_score,
         "bearish_score": bearish_score,
         "paper_bias": paper_bias,
@@ -141,7 +196,7 @@ def analyze_ticker(ticker):
     }
 
 
-def add_to_log(result):
+def add_signal_log(result):
     st.session_state.signal_log.append({
         "Time": datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
@@ -175,17 +230,20 @@ st.subheader("🔎 Check One Stock")
 
 ticker = st.text_input(
     "Enter a stock ticker:",
-    "AAPL"
+    "AAPL",
+    key="single_ticker"
 ).upper().strip()
 
 if st.button("Check Signal"):
     try:
-        result = analyze_ticker(ticker)
+        result = analyze_ticker(
+            ticker
+        )
 
         if result is None:
             st.error(
                 "Not enough market data "
-                "was found for this ticker."
+                "was found."
             )
 
         else:
@@ -207,7 +265,8 @@ if st.button("Check Signal"):
                 )
 
                 st.progress(
-                    result["bullish_score"] / 100
+                    result["bullish_score"]
+                    / 100
                 )
 
             with col2:
@@ -217,20 +276,21 @@ if st.button("Check Signal"):
                 )
 
                 st.progress(
-                    result["bearish_score"] / 100
+                    result["bearish_score"]
+                    / 100
                 )
 
             if (
-                result["paper_bias"] ==
-                "PAPER BULLISH ALIGNMENT"
+                result["paper_bias"]
+                == "PAPER BULLISH ALIGNMENT"
             ):
                 st.success(
                     "📈 PAPER BULLISH ALIGNMENT"
                 )
 
             elif (
-                result["paper_bias"] ==
-                "PAPER BEARISH ALIGNMENT"
+                result["paper_bias"]
+                == "PAPER BEARISH ALIGNMENT"
             ):
                 st.warning(
                     "📉 PAPER BEARISH ALIGNMENT"
@@ -254,40 +314,176 @@ if st.button("Check Signal"):
                 f"{result['macd_signal']:.4f}"
             )
 
-            st.subheader(
-                "Indicator Check"
-            )
-
-            indicator_table = pd.DataFrame({
-                "Indicator": [
-                    "SMA5 above SMA10",
-                    "RSI above 50",
-                    "MACD above signal line",
-                    "Price above Bollinger middle"
-                ],
-                "Bullish": [
-                    result["sma_bullish"],
-                    result["rsi_bullish"],
-                    result["macd_bullish"],
-                    result["price_bullish"]
-                ]
-            })
-
-            st.dataframe(
-                indicator_table,
-                use_container_width=True,
-                hide_index=True
-            )
-
             st.line_chart(
                 result["chart_data"]
             )
 
-            add_to_log(result)
+            add_signal_log(
+                result
+            )
 
     except Exception as e:
         st.error(
             f"Something went wrong: {e}"
+        )
+
+
+st.divider()
+
+st.subheader(
+    "⏱️ 30-Second Paper Observation"
+)
+
+st.write(
+    "This records a starting market price, "
+    "waits 30 seconds, checks again, "
+    "and labels the movement UP, DOWN, "
+    "or FLAT. No trade is placed."
+)
+
+observation_ticker = st.text_input(
+    "Ticker for 30-second observation:",
+    "MSFT",
+    key="observation_ticker"
+).upper().strip()
+
+if st.button(
+    "Start 30-Second Observation"
+):
+    try:
+        analysis = analyze_ticker(
+            observation_ticker
+        )
+
+        start_price = get_latest_price(
+            observation_ticker
+        )
+
+        if start_price is None:
+            st.error(
+                "Could not get a starting price."
+            )
+
+        else:
+            start_time = datetime.now()
+
+            st.write(
+                f"Starting price: "
+                f"${start_price:.4f}"
+            )
+
+            with st.spinner(
+                "Waiting 30 seconds..."
+            ):
+                time.sleep(30)
+
+            end_price = get_latest_price(
+                observation_ticker
+            )
+
+            end_time = datetime.now()
+
+            if end_price is None:
+                st.error(
+                    "Could not get the ending price."
+                )
+
+            else:
+                difference = (
+                    end_price
+                    - start_price
+                )
+
+                if difference > 0:
+                    movement = "UP"
+
+                elif difference < 0:
+                    movement = "DOWN"
+
+                else:
+                    movement = "FLAT"
+
+                st.subheader(
+                    "30-Second Result"
+                )
+
+                st.write(
+                    f"Start: ${start_price:.4f}"
+                )
+
+                st.write(
+                    f"End: ${end_price:.4f}"
+                )
+
+                st.write(
+                    f"Change: {difference:.4f}"
+                )
+
+                if movement == "UP":
+                    st.success(
+                        "📈 Result: UP"
+                    )
+
+                elif movement == "DOWN":
+                    st.warning(
+                        "📉 Result: DOWN"
+                    )
+
+                else:
+                    st.info(
+                        "➖ Result: FLAT"
+                    )
+
+                bullish_score = None
+                bearish_score = None
+                paper_bias = None
+
+                if analysis is not None:
+                    bullish_score = analysis[
+                        "bullish_score"
+                    ]
+
+                    bearish_score = analysis[
+                        "bearish_score"
+                    ]
+
+                    paper_bias = analysis[
+                        "paper_bias"
+                    ]
+
+                st.session_state.observation_log.append({
+                    "Start Time": (
+                        start_time.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                    ),
+                    "End Time": (
+                        end_time.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                    ),
+                    "Ticker": observation_ticker,
+                    "Start Price": round(
+                        start_price,
+                        4
+                    ),
+                    "End Price": round(
+                        end_price,
+                        4
+                    ),
+                    "Change": round(
+                        difference,
+                        4
+                    ),
+                    "Movement": movement,
+                    "Bullish Score": bullish_score,
+                    "Bearish Score": bearish_score,
+                    "Paper Bias": paper_bias
+                })
+
+    except Exception as e:
+        st.error(
+            f"Observation error: {e}"
         )
 
 
@@ -299,7 +495,8 @@ st.subheader(
 
 watchlist_text = st.text_input(
     "Enter tickers separated by commas:",
-    "AAPL, MSFT, NVDA"
+    "AAPL, MSFT, NVDA",
+    key="watchlist"
 )
 
 watchlist = [
@@ -309,7 +506,7 @@ watchlist = [
 ]
 
 if st.button("Scan Watchlist"):
-    watchlist_results = []
+    results = []
 
     for symbol in watchlist:
         try:
@@ -318,7 +515,7 @@ if st.button("Scan Watchlist"):
             )
 
             if result is not None:
-                watchlist_results.append({
+                results.append({
                     "Ticker": symbol,
                     "Price": round(
                         result["price"],
@@ -339,26 +536,23 @@ if st.button("Scan Watchlist"):
                     ]
                 })
 
-                add_to_log(result)
+                add_signal_log(
+                    result
+                )
 
         except Exception:
             pass
 
-    if watchlist_results:
-        watchlist_df = pd.DataFrame(
-            watchlist_results
-        )
-
+    if results:
         st.dataframe(
-            watchlist_df,
+            pd.DataFrame(results),
             use_container_width=True,
             hide_index=True
         )
 
     else:
         st.warning(
-            "No watchlist results "
-            "were available."
+            "No watchlist results available."
         )
 
 
@@ -367,32 +561,30 @@ st.divider()
 st.subheader("📝 Signal Log")
 
 if st.session_state.signal_log:
-    log_df = pd.DataFrame(
+    signal_df = pd.DataFrame(
         st.session_state.signal_log
     )
 
     st.dataframe(
-        log_df,
+        signal_df,
         use_container_width=True,
         hide_index=True
     )
 
-    csv_data = log_df.to_csv(
-        index=False
-    ).encode("utf-8")
+    signal_csv = (
+        signal_df
+        .to_csv(index=False)
+        .encode("utf-8")
+    )
 
     st.download_button(
-        label="Download Signal Log CSV",
-        data=csv_data,
+        "Download Signal Log CSV",
+        data=signal_csv,
         file_name=(
-            "paper_trading_signal_log.csv"
+            "paper_signal_log.csv"
         ),
         mime="text/csv"
     )
-
-    if st.button("Clear Signal Log"):
-        st.session_state.signal_log = []
-        st.rerun()
 
 else:
     st.info(
@@ -403,28 +595,49 @@ else:
 st.divider()
 
 st.subheader(
-    "ℹ️ How to read the paper scores"
+    "⏱️ 30-Second Observation Log"
 )
 
-st.write(
-    "75 to 100 Bullish = strong bullish "
-    "indicator alignment for paper testing."
-)
+if st.session_state.observation_log:
+    observation_df = pd.DataFrame(
+        st.session_state.observation_log
+    )
 
-st.write(
-    "75 to 100 Bearish = strong bearish "
-    "indicator alignment for paper testing."
-)
+    st.dataframe(
+        observation_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
-st.write(
-    "Scores between those levels are treated "
-    "as mixed or neutral."
-)
+    observation_csv = (
+        observation_df
+        .to_csv(index=False)
+        .encode("utf-8")
+    )
+
+    st.download_button(
+        "Download Observation Log CSV",
+        data=observation_csv,
+        file_name=(
+            "30_second_observation_log.csv"
+        ),
+        mime="text/csv"
+    )
+
+else:
+    st.info(
+        "No 30-second observations yet."
+    )
+
+
+st.divider()
 
 st.caption(
-    "These are indicator-alignment scores, "
-    "not probabilities and not instructions "
-    "to buy or sell. This app uses historical "
-    "daily market data and is for paper testing "
-    "and educational use only."
-        )
+    "Paper-testing and educational use only. "
+    "The 30-second observation uses Yahoo Finance "
+    "market data, which may be delayed or update "
+    "slower than 30 seconds. It does not match "
+    "Pocket Option OTC pricing and should not be "
+    "used as live entry timing or as an instruction "
+    "to buy or sell."
+)
