@@ -5,6 +5,18 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+
+LOCAL_TZ = ZoneInfo("America/New_York")
+
+
+def local_now():
+    return datetime.now(LOCAL_TZ)
+
+
+def format_time(dt):
+    return dt.strftime("%I:%M %p").lstrip("0")
+
+
 st.set_page_config(
     page_title="Paper Trading Signal App",
     page_icon="📈",
@@ -12,11 +24,13 @@ st.set_page_config(
 )
 
 st.title("📈 My Paper Trading Signal App")
+
 st.write(
     "Paper-testing and learning only. "
     "Bullish and Bearish scores show indicator alignment, "
     "not the probability of winning a trade."
 )
+
 
 if "signal_log" not in st.session_state:
     st.session_state.signal_log = []
@@ -24,17 +38,20 @@ if "signal_log" not in st.session_state:
 if "observation_log" not in st.session_state:
     st.session_state.observation_log = []
 
+
 def get_latest_price(ticker):
     stock = yf.Ticker(ticker)
+
     data = stock.history(
         period="1d",
         interval="1m",
         prepost=True
     )
+
     if data.empty:
         return None
-    return float(data["Close"].iloc[-1])
 
+    return float(data["Close"].iloc[-1])
 
 
 def analyze_ticker(ticker):
@@ -151,7 +168,9 @@ def analyze_ticker(ticker):
         "price": float(latest["Close"]),
         "rsi": float(latest["RSI"]),
         "macd": float(latest["MACD"]),
-        "macd_signal": float(latest["MACD_SIGNAL"]),
+        "macd_signal": float(
+            latest["MACD_SIGNAL"]
+        ),
         "bullish_score": bullish_score,
         "bearish_score": bearish_score,
         "paper_bias": paper_bias,
@@ -168,8 +187,8 @@ def analyze_ticker(ticker):
 
 def add_signal_log(result):
     st.session_state.signal_log.append({
-        "Time": datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
+        "Time": local_now().strftime(
+            "%Y-%m-%d %I:%M:%S %p"
         ),
         "Ticker": result["ticker"],
         "Price": round(
@@ -203,6 +222,7 @@ ticker = st.text_input(
     "AAPL",
     key="single_ticker"
 ).upper().strip()
+
 
 if st.button("Check Signal"):
     try:
@@ -310,6 +330,7 @@ observation_ticker = st.text_input(
     key="observation_ticker"
 ).upper().strip()
 
+
 if st.button(
     "Start 60-Second Observation"
 ):
@@ -328,11 +349,16 @@ if st.button(
             )
 
         else:
-            end_time = datetime.now(ZoneInfo("America/New_York"))
+            start_time = local_now()
 
             st.write(
                 f"Starting price: "
                 f"${start_price:.4f}"
+            )
+
+            st.write(
+                "Started at: "
+                f"{format_time(start_time)}"
             )
 
             with st.spinner(
@@ -344,7 +370,7 @@ if st.button(
                 observation_ticker
             )
 
-            end_time = datetime.now()
+            end_time = local_now()
 
             if end_price is None:
                 st.error(
@@ -369,10 +395,12 @@ if st.button(
                 st.subheader(
                     "60-Second Result"
                 )
+
                 st.write(
-    "Observation time: "
-    f"{start_time.strftime('%I:%M:%S %p')} → "
-    f"{end_time.strftime('%I:%M:%S %p')}"
+                    "Observation time: "
+                    f"{format_time(start_time)}"
+                    " → "
+                    f"{format_time(end_time)}"
                 )
 
                 st.write(
@@ -422,12 +450,12 @@ if st.button(
                 st.session_state.observation_log.append({
                     "Start Time": (
                         start_time.strftime(
-                            "%Y-%m-%d %H:%M:%S"
+                            "%Y-%m-%d %I:%M:%S %p"
                         )
                     ),
                     "End Time": (
                         end_time.strftime(
-                            "%Y-%m-%d %H:%M:%S"
+                            "%Y-%m-%d %I:%M:%S %p"
                         )
                     ),
                     "Ticker": observation_ticker,
@@ -472,6 +500,7 @@ watchlist = [
     for item in watchlist_text.split(",")
     if item.strip()
 ]
+
 
 if st.button("Scan Watchlist"):
     results = []
@@ -546,9 +575,7 @@ if st.session_state.signal_log:
     st.download_button(
         "Download Signal Log CSV",
         data=signal_csv,
-        file_name=(
-            "paper_signal_log.csv"
-        ),
+        file_name="paper_signal_log.csv",
         mime="text/csv"
     )
 
@@ -606,4 +633,4 @@ st.caption(
     "Pocket Option OTC pricing and should not be "
     "used as live entry timing or as an instruction "
     "to buy or sell."
-)
+            )
