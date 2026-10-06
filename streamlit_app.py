@@ -22,7 +22,7 @@ def latest_price(ticker):
     data = yf.Ticker(ticker).history(
         period="1d",
         interval="1m",
-        prepost=True
+        prepost=True,
     )
 
     if data.empty:
@@ -32,9 +32,7 @@ def latest_price(ticker):
 
 
 def analyze(ticker):
-    data = yf.Ticker(ticker).history(
-        period="6mo"
-    )
+    data = yf.Ticker(ticker).history(period="6mo")
 
     if data.empty or len(data) < 30:
         return None
@@ -45,49 +43,21 @@ def analyze(ticker):
     data["SMA10"] = close.rolling(10).mean()
 
     delta = close.diff()
-
-    gain = (
-        delta.clip(lower=0)
-        .rolling(14)
-        .mean()
-    )
-
-    loss = (
-        -delta.clip(upper=0)
-        .rolling(14)
-        .mean()
-    )
-
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
     rs = gain / loss
+    data["RSI"] = 100 - (100 / (1 + rs))
 
-    data["RSI"] = (
-        100 - (100 / (1 + rs))
-    )
-
-    ema12 = close.ewm(
-        span=12,
-        adjust=False
-    ).mean()
-
-    ema26 = close.ewm(
-        span=26,
-        adjust=False
-    ).mean()
-
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
     data["MACD"] = ema12 - ema26
 
-    data["MACD_SIGNAL"] = (
-        data["MACD"]
-        .ewm(
-            span=9,
-            adjust=False
-        )
-        .mean()
-    )
+    data["MACD_SIGNAL"] = data["MACD"].ewm(
+        span=9,
+        adjust=False,
+    ).mean()
 
-    data["BB_MIDDLE"] = (
-        close.rolling(20).mean()
-    )
+    data["BB_MIDDLE"] = close.rolling(20).mean()
 
     clean = data.dropna()
 
@@ -113,33 +83,24 @@ def analyze(ticker):
     bearish = 100 - bullish
 
     if bullish >= 75:
-        bias = "PAPER BULLISH ALIGNMENT"
-
+        bias = "BULLISH"
     elif bearish >= 75:
-        bias = "PAPER BEARISH ALIGNMENT"
-
+        bias = "BEARISH"
     else:
-        bias = "MIXED / NEUTRAL"
+        bias = "NEUTRAL"
 
     return {
         "ticker": ticker,
         "price": float(latest["Close"]),
         "rsi": float(latest["RSI"]),
         "macd": float(latest["MACD"]),
-        "macd_signal": float(
-            latest["MACD_SIGNAL"]
-        ),
+        "macd_signal": float(latest["MACD_SIGNAL"]),
         "bullish": bullish,
         "bearish": bearish,
         "bias": bias,
         "chart": clean[
-            [
-                "Close",
-                "SMA5",
-                "SMA10",
-                "BB_MIDDLE"
-            ]
-        ]
+            ["Close", "SMA5", "SMA10", "BB_MIDDLE"]
+        ],
     }
 
 
@@ -150,45 +111,45 @@ def log_signal(result):
                 "%Y-%m-%d %I:%M:%S %p"
             ),
             "Ticker": result["ticker"],
-            "Price": round(
-                result["price"],
-                2
-            ),
-            "RSI": round(
-                result["rsi"],
-                2
-            ),
-            "MACD": round(
-                result["macd"],
-                4
-            ),
-            "Bullish": result[
-                "bullish"
-            ],
-            "Bearish": result[
-                "bearish"
-            ],
-            "Paper Bias": result[
-                "bias"
-            ]
+            "Price": round(result["price"], 2),
+            "RSI": round(result["rsi"], 2),
+            "MACD": round(result["macd"], 4),
+            "Bullish": result["bullish"],
+            "Bearish": result["bearish"],
+            "Paper Bias": result["bias"],
         }
     )
+
+
+def evaluate_alignment(bias, movement):
+    if bias == "BULLISH":
+        if movement == "UP":
+            return "MATCH"
+        if movement == "DOWN":
+            return "MISS"
+        return "FLAT"
+
+    if bias == "BEARISH":
+        if movement == "DOWN":
+            return "MATCH"
+        if movement == "UP":
+            return "MISS"
+        return "FLAT"
+
+    return "NEUTRAL"
 
 
 st.set_page_config(
     page_title="Paper Trading Signal App",
     page_icon="📈",
-    layout="wide"
+    layout="wide",
 )
 
-st.title(
-    "📈 My Paper Trading Signal App"
-)
+st.title("📈 My Paper Trading Signal App")
 
 st.caption(
     "Paper-testing and educational use only. "
-    "Scores are indicator alignment, "
-    "not trade probabilities."
+    "Scores are indicator alignment, not trade probabilities."
 )
 
 
@@ -199,33 +160,24 @@ if "observation_log" not in st.session_state:
     st.session_state.observation_log = []
 
 
-st.subheader(
-    "🔎 Check One Stock"
-)
+st.subheader("🔎 Check One Stock")
 
 ticker = st.text_input(
     "Enter a stock ticker:",
-    "AAPL"
+    "AAPL",
 ).upper().strip()
 
 
-if st.button(
-    "Check Signal"
-):
+if st.button("Check Signal"):
     try:
-        result = analyze(
-            ticker
-        )
+        result = analyze(ticker)
 
         if result is None:
-            st.error(
-                "Not enough market data was found."
-            )
-
+            st.error("Not enough market data was found.")
         else:
             st.metric(
                 "Latest price",
-                f"${result['price']:.2f}"
+                f"${result['price']:.2f}",
             )
 
             col1, col2 = st.columns(2)
@@ -233,69 +185,37 @@ if st.button(
             with col1:
                 st.metric(
                     "📈 Bullish Score",
-                    f"{result['bullish']} / 100"
+                    f"{result['bullish']} / 100",
                 )
-
-                st.progress(
-                    result["bullish"] / 100
-                )
+                st.progress(result["bullish"] / 100)
 
             with col2:
                 st.metric(
                     "📉 Bearish Score",
-                    f"{result['bearish']} / 100"
+                    f"{result['bearish']} / 100",
                 )
+                st.progress(result["bearish"] / 100)
 
-                st.progress(
-                    result["bearish"] / 100
-                )
-
-            if (
-                result["bias"]
-                == "PAPER BULLISH ALIGNMENT"
-            ):
-                st.success(
-                    "📈 PAPER BULLISH ALIGNMENT"
-                )
-
-            elif (
-                result["bias"]
-                == "PAPER BEARISH ALIGNMENT"
-            ):
-                st.warning(
-                    "📉 PAPER BEARISH ALIGNMENT"
-                )
-
+            if result["bias"] == "BULLISH":
+                st.success("📈 PAPER BULLISH ALIGNMENT")
+            elif result["bias"] == "BEARISH":
+                st.warning("📉 PAPER BEARISH ALIGNMENT")
             else:
-                st.info(
-                    "⚖️ MIXED / NEUTRAL"
-                )
+                st.info("⚖️ MIXED / NEUTRAL")
 
-            st.write(
-                f"RSI: {result['rsi']:.2f}"
-            )
-
-            st.write(
-                f"MACD: {result['macd']:.4f}"
-            )
-
+            st.write(f"RSI: {result['rsi']:.2f}")
+            st.write(f"MACD: {result['macd']:.4f}")
             st.write(
                 "MACD signal line: "
                 f"{result['macd_signal']:.4f}"
             )
 
-            st.line_chart(
-                result["chart"]
-            )
+            st.line_chart(result["chart"])
 
-            log_signal(
-                result
-            )
+            log_signal(result)
 
     except Exception as e:
-        st.error(
-            f"Signal error: {e}"
-        )
+        st.error(f"Signal error: {e}")
 
 
 st.divider()
@@ -305,33 +225,29 @@ st.subheader(
 )
 
 st.write(
-    "Press the button now. "
-    "The app schedules the observation "
-    "for two minutes ahead, then watches "
-    "that future one-minute window."
+    "Press the button now. The app schedules a future "
+    "one-minute observation window, records the starting "
+    "price, waits 60 seconds, and then compares the actual "
+    "movement with the Bullish/Bearish paper bias."
 )
 
 obs_ticker = st.text_input(
     "Ticker for future observation:",
     "MSFT",
-    key="obs"
+    key="obs",
 ).upper().strip()
 
 
-if st.button(
-    "Start Future 60-Second Observation"
-):
+if st.button("Start Future 60-Second Observation"):
     try:
-        analysis = analyze(
-            obs_ticker
-        )
+        analysis = analyze(obs_ticker)
 
         current = now_local()
 
         target_start = (
             current.replace(
                 second=0,
-                microsecond=0
+                microsecond=0,
             )
             + timedelta(minutes=2)
         )
@@ -347,78 +263,73 @@ if st.button(
             f"{fmt_time(target_end)}"
         )
 
+        if analysis is not None:
+            st.write(
+                "Paper bias at scheduling time: "
+                f"{analysis['bias']}"
+            )
+            st.write(
+                f"Bullish: {analysis['bullish']} / 100 | "
+                f"Bearish: {analysis['bearish']} / 100"
+            )
+
         wait_seconds = (
-            target_start
-            - now_local()
+            target_start - now_local()
         ).total_seconds()
 
         if wait_seconds > 0:
             with st.spinner(
-                "Waiting for the scheduled "
-                "observation time..."
+                "Waiting for the scheduled observation time..."
             ):
-                time.sleep(
-                    wait_seconds
-                )
+                time.sleep(wait_seconds)
 
         start_time = now_local()
-
-        start_price = latest_price(
-            obs_ticker
-        )
+        start_price = latest_price(obs_ticker)
 
         if start_price is None:
-            st.error(
-                "Could not get a starting price."
-            )
-
+            st.error("Could not get a starting price.")
         else:
             st.write(
                 "Observation started at: "
                 f"{fmt_time(start_time)}"
             )
-
             st.write(
-                f"Starting price: "
-                f"${start_price:.4f}"
+                f"Starting price: ${start_price:.4f}"
             )
 
-            with st.spinner(
-                "Observing for 60 seconds..."
-            ):
-                time.sleep(
-                    60
-                )
+            with st.spinner("Observing for 60 seconds..."):
+                time.sleep(60)
 
             end_time = now_local()
-
-            end_price = latest_price(
-                obs_ticker
-            )
+            end_price = latest_price(obs_ticker)
 
             if end_price is None:
-                st.error(
-                    "Could not get the ending price."
-                )
-
+                st.error("Could not get the ending price.")
             else:
-                change = (
-                    end_price
-                    - start_price
-                )
+                change = end_price - start_price
 
                 if change > 0:
                     movement = "UP"
-
                 elif change < 0:
                     movement = "DOWN"
-
                 else:
                     movement = "FLAT"
 
-                st.subheader(
-                    "60-Second Result"
+                if analysis is None:
+                    bias = "NEUTRAL"
+                    bullish = None
+                    bearish = None
+                else:
+                    bias = analysis["bias"]
+                    bullish = analysis["bullish"]
+                    bearish = analysis["bearish"]
+
+                evaluation = evaluate_alignment(
+                    bias,
+                    movement,
                 )
+
+                st.subheader("60-Second Result")
 
                 st.write(
                     "Observation time: "
@@ -429,28 +340,37 @@ if st.button(
                 st.write(
                     f"Start: ${start_price:.4f}"
                 )
-
                 st.write(
                     f"End: ${end_price:.4f}"
                 )
-
                 st.write(
                     f"Change: {change:.4f}"
                 )
 
                 if movement == "UP":
-                    st.success(
-                        "📈 Result: UP"
-                    )
-
+                    st.success("📈 Result: UP")
                 elif movement == "DOWN":
-                    st.warning(
-                        "📉 Result: DOWN"
-                    )
+                    st.warning("📉 Result: DOWN")
+                else:
+                    st.info("➖ Result: FLAT")
 
+                if evaluation == "MATCH":
+                    st.success(
+                        "✅ Paper bias matched the observed direction."
+                    )
+                elif evaluation == "MISS":
+                    st.error(
+                        "❌ Paper bias did not match the observed direction."
+                    )
+                elif evaluation == "FLAT":
+                    st.info(
+                        "➖ Price finished flat, so this test is not "
+                        "counted as a directional match or miss."
+                    )
                 else:
                     st.info(
-                        "➖ Result: FLAT"
+                        "⚖️ Neutral paper bias, so this test is not "
+                        "counted in directional accuracy."
                     )
 
                 st.session_state.observation_log.append(
@@ -478,51 +398,107 @@ if st.button(
                         "Ticker": obs_ticker,
                         "Start Price": round(
                             start_price,
-                            4
+                            4,
                         ),
                         "End Price": round(
                             end_price,
-                            4
+                            4,
                         ),
                         "Change": round(
                             change,
-                            4
+                            4,
                         ),
                         "Movement": movement,
-                        "Bullish": (
-                            None
-                            if analysis is None
-                            else analysis["bullish"]
-                        ),
-                        "Bearish": (
-                            None
-                            if analysis is None
-                            else analysis["bearish"]
-                        ),
-                        "Paper Bias": (
-                            None
-                            if analysis is None
-                            else analysis["bias"]
-                        )
+                        "Bullish": bullish,
+                        "Bearish": bearish,
+                        "Paper Bias": bias,
+                        "Evaluation": evaluation,
                     }
                 )
 
     except Exception as e:
-        st.error(
-            f"Observation error: {e}"
-        )
+        st.error(f"Observation error: {e}")
 
 
 st.divider()
 
-st.subheader(
-    "📋 Paper Trading Watchlist"
-)
+st.subheader("📊 Paper Accuracy Tracker")
+
+if st.session_state.observation_log:
+    accuracy_df = pd.DataFrame(
+        st.session_state.observation_log
+    )
+
+    directional = accuracy_df[
+        accuracy_df["Evaluation"].isin(
+            ["MATCH", "MISS"]
+        )
+    ]
+
+    total_directional = len(directional)
+    matches = int(
+        (directional["Evaluation"] == "MATCH").sum()
+    )
+    misses = int(
+        (directional["Evaluation"] == "MISS").sum()
+    )
+
+    if total_directional > 0:
+        accuracy = (
+            matches
+            / total_directional
+            * 100
+        )
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Directional Tests",
+                total_directional,
+            )
+
+        with col2:
+            st.metric(
+                "Matches",
+                matches,
+            )
+
+        with col3:
+            st.metric(
+                "Paper Accuracy",
+                f"{accuracy:.1f}%",
+            )
+
+        st.write(
+            f"Misses: {misses}"
+        )
+
+        st.caption(
+            "Accuracy only counts tests where the paper bias "
+            "was Bullish or Bearish and the observed movement "
+            "was not flat."
+        )
+
+    else:
+        st.info(
+            "No directional tests have been completed yet."
+        )
+
+else:
+    st.info(
+        "No future observations yet."
+    )
+
+
+st.divider()
+
+st.subheader("📋 Paper Trading Watchlist")
 
 watchlist_text = st.text_input(
     "Enter tickers separated by commas:",
     "AAPL, MSFT, NVDA",
-    key="watch"
+    key="watch",
 )
 
 watchlist = [
@@ -532,16 +508,12 @@ watchlist = [
 ]
 
 
-if st.button(
-    "Scan Watchlist"
-):
+if st.button("Scan Watchlist"):
     rows = []
 
     for symbol in watchlist:
         try:
-            result = analyze(
-                symbol
-            )
+            result = analyze(symbol)
 
             if result is not None:
                 rows.append(
@@ -549,40 +521,29 @@ if st.button(
                         "Ticker": symbol,
                         "Price": round(
                             result["price"],
-                            2
+                            2,
                         ),
                         "RSI": round(
                             result["rsi"],
-                            2
+                            2,
                         ),
-                        "Bullish": result[
-                            "bullish"
-                        ],
-                        "Bearish": result[
-                            "bearish"
-                        ],
-                        "Paper Bias": result[
-                            "bias"
-                        ]
+                        "Bullish": result["bullish"],
+                        "Bearish": result["bearish"],
+                        "Paper Bias": result["bias"],
                     }
                 )
 
-                log_signal(
-                    result
-                )
+                log_signal(result)
 
         except Exception:
             pass
 
     if rows:
         st.dataframe(
-            pd.DataFrame(
-                rows
-            ),
+            pd.DataFrame(rows),
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
         )
-
     else:
         st.warning(
             "No watchlist results available."
@@ -591,9 +552,7 @@ if st.button(
 
 st.divider()
 
-st.subheader(
-    "📝 Signal Log"
-)
+st.subheader("📝 Signal Log")
 
 if st.session_state.signal_log:
     signal_df = pd.DataFrame(
@@ -603,7 +562,7 @@ if st.session_state.signal_log:
     st.dataframe(
         signal_df,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
     )
 
     st.download_button(
@@ -613,23 +572,16 @@ if st.session_state.signal_log:
             .to_csv(index=False)
             .encode("utf-8")
         ),
-        file_name=(
-            "paper_signal_log.csv"
-        ),
-        mime="text/csv"
+        file_name="paper_signal_log.csv",
+        mime="text/csv",
     )
-
 else:
-    st.info(
-        "No signals logged yet."
-    )
+    st.info("No signals logged yet.")
 
 
 st.divider()
 
-st.subheader(
-    "⏱️ Future Observation Log"
-)
+st.subheader("⏱️ Future Observation Log")
 
 if st.session_state.observation_log:
     observation_df = pd.DataFrame(
@@ -639,7 +591,7 @@ if st.session_state.observation_log:
     st.dataframe(
         observation_df,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
     )
 
     st.download_button(
@@ -652,17 +604,19 @@ if st.session_state.observation_log:
         file_name=(
             "future_60_second_observation_log.csv"
         ),
-        mime="text/csv"
+        mime="text/csv",
     )
 
+    if st.button("Clear Observation Log"):
+        st.session_state.observation_log = []
+        st.rerun()
+
 else:
-    st.info(
-        "No future observations yet."
-    )
+    st.info("No future observations yet.")
 
 
 st.caption(
-    "Yahoo Finance data may be delayed "
-    "and does not match Pocket Option OTC pricing. "
-    "This app records paper observations only."
-        )
+    "Yahoo Finance data may be delayed and does not match "
+    "Pocket Option OTC pricing. This app records paper "
+    "observations only and does not predict future prices."
+            )
