@@ -368,6 +368,11 @@ if st.button(
                 st.subheader(
                     "60-Second Result"
                 )
+                st.write(
+    "Observation time: "
+    f"{start_time.strftime('%I:%M:%S %p')} → "
+    f"{end_time.strftime('%I:%M:%S %p')}"
+                )
 
                 st.write(
                     f"Start: ${start_price:.4f}"
