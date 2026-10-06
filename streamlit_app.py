@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 st.set_page_config(
     page_title="Paper Trading Signal App",
@@ -327,7 +328,7 @@ if st.button(
             )
 
         else:
-            start_time = datetime.now()
+            start_time = datetime.now(ZoneInfo("America/New_York"))
 
             st.write(
                 f"Starting price: "
