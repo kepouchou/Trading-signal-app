@@ -23,28 +23,17 @@ if "signal_log" not in st.session_state:
 if "observation_log" not in st.session_state:
     st.session_state.observation_log = []
 
-
 def get_latest_price(ticker):
     stock = yf.Ticker(ticker)
-
-    try:
-        price = stock.fast_info["last_price"]
-
-        if price is not None:
-            return float(price)
-
-    except Exception:
-        pass
-
     data = stock.history(
         period="1d",
-        interval="1m"
+        interval="1m",
+        prepost=True
     )
-
     if data.empty:
         return None
-
     return float(data["Close"].iloc[-1])
+
 
 
 def analyze_ticker(ticker):
