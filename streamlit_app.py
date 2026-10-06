@@ -25,11 +25,25 @@ def latest_price(ticker):
         prepost=True,
     )
 
-    if data.empty:
-        return None
-
-    return float(data["Close"].iloc[-1])
-
+    
+return {
+    "ticker": ticker,
+    "price": float(latest["Close"]),
+    "rsi": float(latest["RSI"]),
+    "macd": float(latest["MACD"]),
+    "macd_signal": float(latest["MACD_SIGNAL"]),
+    "bullish": bullish,
+    "bearish": bearish,
+    "bias": bias,
+    "chart": clean[
+        [
+            "Close",
+            "SMA5",
+            "SMA10",
+            "BB_MIDDLE",
+        ]
+    ],
+}
 
 def analyze(ticker):
     data = yf.Ticker(ticker).history(
