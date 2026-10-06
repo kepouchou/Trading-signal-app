@@ -328,7 +328,7 @@ if st.button(
             )
 
         else:
-            start_time = datetime.now(ZoneInfo("America/New_York"))
+            end_time = datetime.now(ZoneInfo("America/New_York"))
 
             st.write(
                 f"Starting price: "
