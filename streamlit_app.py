@@ -145,46 +145,26 @@ def analyze_ticker(ticker):
     if price_bullish:
         bullish_score += 25
 
-    bearish_score = (
-        100 - bullish_score
-    )
+    bearish_score = 100 - bullish_score
 
     if bullish_score >= 75:
-        paper_bias = (
-            "PAPER BULLISH ALIGNMENT"
-        )
+        paper_bias = "PAPER BULLISH ALIGNMENT"
 
     elif bearish_score >= 75:
-        paper_bias = (
-            "PAPER BEARISH ALIGNMENT"
-        )
+        paper_bias = "PAPER BEARISH ALIGNMENT"
 
     else:
-        paper_bias = (
-            "MIXED / NEUTRAL"
-        )
+        paper_bias = "MIXED / NEUTRAL"
 
     return {
         "ticker": ticker,
-        "price": float(
-            latest["Close"]
-        ),
-        "rsi": float(
-            latest["RSI"]
-        ),
-        "macd": float(
-            latest["MACD"]
-        ),
-        "macd_signal": float(
-            latest["MACD_SIGNAL"]
-        ),
+        "price": float(latest["Close"]),
+        "rsi": float(latest["RSI"]),
+        "macd": float(latest["MACD"]),
+        "macd_signal": float(latest["MACD_SIGNAL"]),
         "bullish_score": bullish_score,
         "bearish_score": bearish_score,
         "paper_bias": paper_bias,
-        "sma_bullish": sma_bullish,
-        "rsi_bullish": rsi_bullish,
-        "macd_bullish": macd_bullish,
-        "price_bullish": price_bullish,
         "chart_data": clean_data[
             [
                 "Close",
@@ -236,14 +216,11 @@ ticker = st.text_input(
 
 if st.button("Check Signal"):
     try:
-        result = analyze_ticker(
-            ticker
-        )
+        result = analyze_ticker(ticker)
 
         if result is None:
             st.error(
-                "Not enough market data "
-                "was found."
+                "Not enough market data was found."
             )
 
         else:
@@ -265,8 +242,7 @@ if st.button("Check Signal"):
                 )
 
                 st.progress(
-                    result["bullish_score"]
-                    / 100
+                    result["bullish_score"] / 100
                 )
 
             with col2:
@@ -276,8 +252,7 @@ if st.button("Check Signal"):
                 )
 
                 st.progress(
-                    result["bearish_score"]
-                    / 100
+                    result["bearish_score"] / 100
                 )
 
             if (
@@ -318,9 +293,7 @@ if st.button("Check Signal"):
                 result["chart_data"]
             )
 
-            add_signal_log(
-                result
-            )
+            add_signal_log(result)
 
     except Exception as e:
         st.error(
@@ -331,24 +304,24 @@ if st.button("Check Signal"):
 st.divider()
 
 st.subheader(
-    "⏱️ 30-Second Paper Observation"
+    "⏱️ 60-Second Paper Observation"
 )
 
 st.write(
     "This records a starting market price, "
-    "waits 30 seconds, checks again, "
+    "waits 60 seconds, checks again, "
     "and labels the movement UP, DOWN, "
     "or FLAT. No trade is placed."
 )
 
 observation_ticker = st.text_input(
-    "Ticker for 30-second observation:",
+    "Ticker for 60-second observation:",
     "MSFT",
     key="observation_ticker"
 ).upper().strip()
 
 if st.button(
-    "Start 30-Second Observation"
+    "Start 60-Second Observation"
 ):
     try:
         analysis = analyze_ticker(
@@ -373,9 +346,9 @@ if st.button(
             )
 
             with st.spinner(
-                "Waiting 30 seconds..."
+                "Waiting 60 seconds..."
             ):
-                time.sleep(30)
+                time.sleep(60)
 
             end_price = get_latest_price(
                 observation_ticker
@@ -404,7 +377,7 @@ if st.button(
                     movement = "FLAT"
 
                 st.subheader(
-                    "30-Second Result"
+                    "60-Second Result"
                 )
 
                 st.write(
@@ -536,9 +509,7 @@ if st.button("Scan Watchlist"):
                     ]
                 })
 
-                add_signal_log(
-                    result
-                )
+                add_signal_log(result)
 
         except Exception:
             pass
@@ -595,7 +566,7 @@ else:
 st.divider()
 
 st.subheader(
-    "⏱️ 30-Second Observation Log"
+    "⏱️ 60-Second Observation Log"
 )
 
 if st.session_state.observation_log:
@@ -619,14 +590,14 @@ if st.session_state.observation_log:
         "Download Observation Log CSV",
         data=observation_csv,
         file_name=(
-            "30_second_observation_log.csv"
+            "60_second_observation_log.csv"
         ),
         mime="text/csv"
     )
 
 else:
     st.info(
-        "No 30-second observations yet."
+        "No 60-second observations yet."
     )
 
 
@@ -634,9 +605,9 @@ st.divider()
 
 st.caption(
     "Paper-testing and educational use only. "
-    "The 30-second observation uses Yahoo Finance "
+    "The 60-second observation uses Yahoo Finance "
     "market data, which may be delayed or update "
-    "slower than 30 seconds. It does not match "
+    "slower than 60 seconds. It does not match "
     "Pocket Option OTC pricing and should not be "
     "used as live entry timing or as an instruction "
     "to buy or sell."
