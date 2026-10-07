@@ -6,7 +6,6 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-
 TZ = ZoneInfo("America/New_York")
 
 
@@ -37,13 +36,23 @@ def get_intraday_data(ticker):
     return data
 
 
-def latest_price(ticker):
+def get_latest_sample(ticker):
     data = get_intraday_data(ticker)
 
     if data is None or data.empty:
         return None
 
-    return float(data["Close"].iloc[-1])
+    timestamp = data.index[-1]
+
+    if getattr(timestamp, "tzinfo", None) is None:
+        timestamp = timestamp.tz_localize(TZ)
+    else:
+        timestamp = timestamp.tz_convert(TZ)
+
+    return {
+        "price": float(data["Close"].iloc[-1]),
+        "timestamp": timestamp.to_pydatetime(),
+    }
 
 
 def analyze_short_term(ticker):
@@ -78,7 +87,10 @@ def analyze_short_term(ticker):
         .mean()
     )
 
-    rs = gain / loss.replace(0, float("nan"))
+    rs = gain / loss.replace(
+        0,
+        float("nan"),
+    )
 
     data["RSI7"] = (
         100 - (100 / (1 + rs))
@@ -149,22 +161,32 @@ def analyze_short_term(ticker):
     bullish_score = bullish_points * 25
     bearish_score = bearish_points * 25
 
-    if bullish_score >= 75 and bullish_score > bearish_score:
+    if (
+        bullish_score >= 75
+        and bullish_score > bearish_score
+    ):
         bias = "BULLISH"
-    elif bearish_score >= 75 and bearish_score > bullish_score:
+
+    elif (
+        bearish_score >= 75
+        and bearish_score > bullish_score
+    ):
         bias = "BEARISH"
+
     else:
         bias = "NEUTRAL"
 
     return {
         "ticker": ticker,
         "price": float(latest["Close"]),
-        "ema5": float(latest["EMA5"]),
-        "ema10": float(latest["EMA10"]),
         "rsi": float(latest["RSI7"]),
         "macd": float(latest["MACD"]),
-        "macd_signal": float(latest["MACD_SIGNAL"]),
-        "momentum3": float(latest["MOMENTUM3"]),
+        "macd_signal": float(
+            latest["MACD_SIGNAL"]
+        ),
+        "momentum3": float(
+            latest["MOMENTUM3"]
+        ),
         "bullish": bullish_score,
         "bearish": bearish_score,
         "bias": bias,
@@ -178,7 +200,13 @@ def analyze_short_term(ticker):
     }
 
 
-def evaluate_alignment(bias, movement):
+def evaluate_alignment(
+    bias,
+    movement,
+):
+    if movement == "NO FRESH DATA":
+        return "NO FRESH DATA"
+
     if bias == "BULLISH":
         if movement == "UP":
             return "MATCH"
@@ -202,7 +230,9 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("📈 Short-Term Paper Signal App")
+st.title(
+    "📈 Short-Term Paper Signal App"
+)
 
 st.caption(
     "Paper-testing and educational use only. "
@@ -215,7 +245,9 @@ if "observations" not in st.session_state:
     st.session_state.observations = []
 
 
-st.subheader("🔎 Check One Stock")
+st.subheader(
+    "🔎 Check One Stock"
+)
 
 ticker = st.text_input(
     "Enter a stock ticker:",
@@ -223,9 +255,13 @@ ticker = st.text_input(
     key="signal_ticker",
 ).upper().strip()
 
-if st.button("Check Short-Term Signal"):
+if st.button(
+    "Check Short-Term Signal"
+):
     try:
-        result = analyze_short_term(ticker)
+        result = analyze_short_term(
+            ticker
+        )
 
         if result is None:
             st.error(
@@ -273,13 +309,16 @@ if st.button("Check Short-Term Signal"):
             st.write(
                 f"RSI(7): {result['rsi']:.2f}"
             )
+
             st.write(
                 f"MACD: {result['macd']:.4f}"
             )
+
             st.write(
                 "MACD signal line: "
                 f"{result['macd_signal']:.4f}"
             )
+
             st.write(
                 "3-minute momentum: "
                 f"{result['momentum3']:.4f}"
@@ -297,12 +336,15 @@ if st.button("Check Short-Term Signal"):
 
 st.divider()
 
-st.subheader("⏱️ 60-Second Paper Observation")
+st.subheader(
+    "⏱️ 60-Second Paper Observation"
+)
 
 st.write(
-    "The app calculates the short-term paper bias, "
-    "records the starting price immediately, waits 60 seconds, "
-    "then checks whether the price moved UP, DOWN, or FLAT."
+    "The app records the newest 1-minute Yahoo Finance sample, "
+    "waits 60 seconds, and checks again. "
+    "If Yahoo did not publish a newer sample, the result is "
+    "NO FRESH DATA instead of FLAT."
 )
 
 obs_ticker = st.text_input(
@@ -311,22 +353,33 @@ obs_ticker = st.text_input(
     key="observation_ticker",
 ).upper().strip()
 
-if st.button("Start 60-Second Observation"):
+if st.button(
+    "Start 60-Second Observation"
+):
     try:
         analysis = analyze_short_term(
             obs_ticker
         )
 
         start_time = now_local()
-        start_price = latest_price(
+
+        start_sample = get_latest_sample(
             obs_ticker
         )
 
-        if start_price is None:
+        if start_sample is None:
             st.error(
-                "Could not get a starting price."
+                "Could not get a starting market sample."
             )
         else:
+            start_price = start_sample[
+                "price"
+            ]
+
+            start_data_time = start_sample[
+                "timestamp"
+            ]
+
             st.info(
                 "Observation started at "
                 f"{fmt_time(start_time)}"
@@ -335,6 +388,11 @@ if st.button("Start 60-Second Observation"):
             st.write(
                 f"Starting price: "
                 f"${start_price:.4f}"
+            )
+
+            st.write(
+                "Yahoo sample time: "
+                f"{fmt_time(start_data_time)}"
             )
 
             if analysis is None:
@@ -355,9 +413,11 @@ if st.button("Start 60-Second Observation"):
                 st.write(
                     f"Paper bias at start: {bias}"
                 )
+
                 st.write(
                     f"Bullish: {bullish} / 100"
                 )
+
                 st.write(
                     f"Bearish: {bearish} / 100"
                 )
@@ -368,30 +428,50 @@ if st.button("Start 60-Second Observation"):
                 time.sleep(60)
 
             end_time = now_local()
-            end_price = latest_price(
+
+            end_sample = get_latest_sample(
                 obs_ticker
             )
 
-            if end_price is None:
+            if end_sample is None:
                 st.error(
-                    "Could not get the ending price."
+                    "Could not get an ending market sample."
                 )
             else:
-                change = (
-                    end_price
-                    - start_price
+                end_price = end_sample[
+                    "price"
+                ]
+
+                end_data_time = end_sample[
+                    "timestamp"
+                ]
+
+                fresh_data = (
+                    end_data_time
+                    > start_data_time
                 )
 
-                if change > 0:
-                    movement = "UP"
-                elif change < 0:
-                    movement = "DOWN"
+                if not fresh_data:
+                    change = 0.0
+                    movement = "NO FRESH DATA"
                 else:
-                    movement = "FLAT"
+                    change = (
+                        end_price
+                        - start_price
+                    )
 
-                evaluation = evaluate_alignment(
-                    bias,
-                    movement,
+                    if change > 0:
+                        movement = "UP"
+                    elif change < 0:
+                        movement = "DOWN"
+                    else:
+                        movement = "FLAT"
+
+                evaluation = (
+                    evaluate_alignment(
+                        bias,
+                        movement,
+                    )
                 )
 
                 st.subheader(
@@ -406,45 +486,77 @@ if st.button("Start 60-Second Observation"):
                 )
 
                 st.write(
-                    f"Start: ${start_price:.4f}"
+                    "Yahoo sample time: "
+                    f"{fmt_time(start_data_time)} "
+                    "→ "
+                    f"{fmt_time(end_data_time)}"
                 )
 
                 st.write(
-                    f"End: ${end_price:.4f}"
+                    f"Start: "
+                    f"${start_price:.4f}"
                 )
 
                 st.write(
-                    f"Change: {change:.4f}"
+                    f"End: "
+                    f"${end_price:.4f}"
                 )
 
-                if movement == "UP":
-                    st.success(
-                        "📈 Result: UP"
-                    )
-                elif movement == "DOWN":
-                    st.warning(
-                        "📉 Result: DOWN"
-                    )
-                else:
+                if movement == "NO FRESH DATA":
                     st.info(
-                        "➖ Result: FLAT"
+                        "⏸️ Result: NO FRESH DATA"
                     )
+
+                    st.write(
+                        "Yahoo Finance did not publish "
+                        "a newer 1-minute sample during "
+                        "this test."
+                    )
+
+                else:
+                    st.write(
+                        f"Change: "
+                        f"{change:.4f}"
+                    )
+
+                    if movement == "UP":
+                        st.success(
+                            "📈 Result: UP"
+                        )
+                    elif movement == "DOWN":
+                        st.warning(
+                            "📉 Result: DOWN"
+                        )
+                    else:
+                        st.info(
+                            "➖ Result: FLAT"
+                        )
 
                 if evaluation == "MATCH":
                     st.success(
                         "✅ Paper bias matched "
                         "the observed direction."
                     )
+
                 elif evaluation == "MISS":
                     st.error(
                         "❌ Paper bias did not match "
                         "the observed direction."
                     )
+
+                elif evaluation == "NO FRESH DATA":
+                    st.info(
+                        "⏸️ Not counted in accuracy "
+                        "because there was no fresh data."
+                    )
+
                 elif evaluation == "FLAT":
                     st.info(
-                        "➖ Flat result. "
+                        "➖ Fresh data was received, "
+                        "but price finished flat. "
                         "Not counted as a match or miss."
                     )
+
                 else:
                     st.info(
                         "⚖️ Neutral paper bias. "
@@ -460,6 +572,16 @@ if st.button("Start 60-Second Observation"):
                         ),
                         "End Time": (
                             end_time.strftime(
+                                "%Y-%m-%d %I:%M:%S %p"
+                            )
+                        ),
+                        "Start Data Time": (
+                            start_data_time.strftime(
+                                "%Y-%m-%d %I:%M:%S %p"
+                            )
+                        ),
+                        "End Data Time": (
+                            end_data_time.strftime(
                                 "%Y-%m-%d %I:%M:%S %p"
                             )
                         ),
@@ -492,7 +614,9 @@ if st.button("Start 60-Second Observation"):
 
 st.divider()
 
-st.subheader("📊 Paper Accuracy Tracker")
+st.subheader(
+    "📊 Paper Accuracy Tracker"
+)
 
 if st.session_state.observations:
     observation_df = pd.DataFrame(
@@ -532,6 +656,15 @@ if st.session_state.observations:
         ).sum()
     )
 
+    stale_count = int(
+        (
+            observation_df[
+                "Evaluation"
+            ]
+            == "NO FRESH DATA"
+        ).sum()
+    )
+
     if total > 0:
         accuracy = (
             matches
@@ -539,7 +672,9 @@ if st.session_state.observations:
             * 100
         )
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = (
+            st.columns(3)
+        )
 
         with col1:
             st.metric(
@@ -562,91 +697,95 @@ if st.session_state.observations:
         st.write(
             f"Misses: {misses}"
         )
-
-        bullish_tests = directional[
-            directional[
-                "Paper Bias"
-            ]
-            == "BULLISH"
-        ]
-
-        bearish_tests = directional[
-            directional[
-                "Paper Bias"
-            ]
-            == "BEARISH"
-        ]
-
-        bullish_total = len(
-            bullish_tests
-        )
-
-        bearish_total = len(
-            bearish_tests
-        )
-
-        bullish_matches = int(
-            (
-                bullish_tests[
-                    "Evaluation"
-                ]
-                == "MATCH"
-            ).sum()
-        )
-
-        bearish_matches = int(
-            (
-                bearish_tests[
-                    "Evaluation"
-                ]
-                == "MATCH"
-            ).sum()
-        )
-
-        st.subheader(
-            "Direction Breakdown"
-        )
-
-        if bullish_total > 0:
-            bullish_accuracy = (
-                bullish_matches
-                / bullish_total
-                * 100
-            )
-
-            st.write(
-                "📈 Bullish tests: "
-                f"{bullish_matches} matches "
-                f"out of {bullish_total} "
-                f"({bullish_accuracy:.1f}%)"
-            )
-        else:
-            st.write(
-                "📈 Bullish tests: 0"
-            )
-
-        if bearish_total > 0:
-            bearish_accuracy = (
-                bearish_matches
-                / bearish_total
-                * 100
-            )
-
-            st.write(
-                "📉 Bearish tests: "
-                f"{bearish_matches} matches "
-                f"out of {bearish_total} "
-                f"({bearish_accuracy:.1f}%)"
-            )
-        else:
-            st.write(
-                "📉 Bearish tests: 0"
-            )
-
     else:
         st.info(
             "No directional tests "
             "have been counted yet."
+        )
+
+    st.metric(
+        "No Fresh Data Tests",
+        stale_count,
+    )
+
+    bullish_tests = directional[
+        directional[
+            "Paper Bias"
+        ]
+        == "BULLISH"
+    ]
+
+    bearish_tests = directional[
+        directional[
+            "Paper Bias"
+        ]
+        == "BEARISH"
+    ]
+
+    bullish_total = len(
+        bullish_tests
+    )
+
+    bearish_total = len(
+        bearish_tests
+    )
+
+    bullish_matches = int(
+        (
+            bullish_tests[
+                "Evaluation"
+            ]
+            == "MATCH"
+        ).sum()
+    )
+
+    bearish_matches = int(
+        (
+            bearish_tests[
+                "Evaluation"
+            ]
+            == "MATCH"
+        ).sum()
+    )
+
+    st.subheader(
+        "Direction Breakdown"
+    )
+
+    if bullish_total > 0:
+        bullish_accuracy = (
+            bullish_matches
+            / bullish_total
+            * 100
+        )
+
+        st.write(
+            "📈 Bullish tests: "
+            f"{bullish_matches} matches "
+            f"out of {bullish_total} "
+            f"({bullish_accuracy:.1f}%)"
+        )
+    else:
+        st.write(
+            "📈 Bullish tests: 0"
+        )
+
+    if bearish_total > 0:
+        bearish_accuracy = (
+            bearish_matches
+            / bearish_total
+            * 100
+        )
+
+        st.write(
+            "📉 Bearish tests: "
+            f"{bearish_matches} matches "
+            f"out of {bearish_total} "
+            f"({bearish_accuracy:.1f}%)"
+        )
+    else:
+        st.write(
+            "📉 Bearish tests: 0"
         )
 
     st.dataframe(
@@ -663,7 +802,7 @@ if st.session_state.observations:
             .encode("utf-8")
         ),
         file_name=(
-            "short_term_60_second_observation_log.csv"
+            "short_term_observation_log.csv"
         ),
         mime="text/csv",
     )
@@ -680,82 +819,9 @@ else:
     )
 
 
-st.divider()
-
-st.subheader(
-    "📋 Short-Term Paper Watchlist"
-)
-
-watchlist_text = st.text_input(
-    "Enter tickers separated by commas:",
-    "AAPL, MSFT, NVDA",
-    key="watchlist",
-)
-
-watchlist = [
-    item.strip().upper()
-    for item in watchlist_text.split(",")
-    if item.strip()
-]
-
-if st.button(
-    "Scan Short-Term Watchlist"
-):
-    rows = []
-
-    for symbol in watchlist:
-        try:
-            result = analyze_short_term(
-                symbol
-            )
-
-            if result is not None:
-                rows.append(
-                    {
-                        "Ticker": symbol,
-                        "Price": round(
-                            result["price"],
-                            4,
-                        ),
-                        "RSI(7)": round(
-                            result["rsi"],
-                            2,
-                        ),
-                        "Bullish": result[
-                            "bullish"
-                        ],
-                        "Bearish": result[
-                            "bearish"
-                        ],
-                        "Paper Bias": result[
-                            "bias"
-                        ],
-                    }
-                )
-
-        except Exception:
-            pass
-
-    if rows:
-        st.dataframe(
-            pd.DataFrame(
-                rows
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.warning(
-            "No short-term watchlist "
-            "results were available."
-        )
-
-
 st.caption(
-    "Paper-testing only. This version uses "
-    "1-minute Yahoo Finance stock data for the "
-    "short-term paper score. Yahoo data can be "
-    "delayed and does not match Pocket Option OTC "
-    "pricing. Results are observations, not "
-    "instructions to buy or sell."
-                )
+    "Paper-testing only. NO FRESH DATA means "
+    "Yahoo Finance did not provide a newer 1-minute "
+    "market sample during the observation. Those tests "
+    "are excluded from the accuracy calculation."
+)
