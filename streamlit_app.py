@@ -55,6 +55,23 @@ def get_latest_sample(ticker):
     }
 
 
+def sample_age_seconds(sample_time):
+    return max(
+        0.0,
+        (now_local() - sample_time).total_seconds(),
+    )
+
+
+def is_sample_fresh(
+    sample_time,
+    max_age_seconds=180,
+):
+    return (
+        sample_age_seconds(sample_time)
+        <= max_age_seconds
+    )
+
+
 def analyze_short_term(ticker):
     data = get_intraday_data(ticker)
 
@@ -263,11 +280,38 @@ if st.button(
             ticker
         )
 
-        if result is None:
+        sample = get_latest_sample(
+            ticker
+        )
+
+        if result is None or sample is None:
             st.error(
                 "Not enough 1-minute market data was found."
             )
         else:
+            age_seconds = sample_age_seconds(
+                sample["timestamp"]
+            )
+
+            if not is_sample_fresh(
+                sample["timestamp"]
+            ):
+                st.warning(
+                    "⚠️ Market data is not live right now. "
+                    "The latest Yahoo sample is too old for "
+                    "a reliable 60-second paper test."
+                )
+
+                st.write(
+                    "Latest Yahoo sample: "
+                    f"{fmt_time(sample['timestamp'])}"
+                )
+
+                st.write(
+                    "Sample age: "
+                    f"{age_seconds / 60:.1f} minutes"
+                )
+
             st.metric(
                 "Latest price",
                 f"${result['price']:.4f}",
@@ -341,10 +385,9 @@ st.subheader(
 )
 
 st.write(
-    "The app records the newest 1-minute Yahoo Finance sample, "
-    "waits 60 seconds, and checks again. "
-    "If Yahoo did not publish a newer sample, the result is "
-    "NO FRESH DATA instead of FLAT."
+    "Before waiting 60 seconds, the app checks whether "
+    "Yahoo's newest 1-minute market sample is fresh. "
+    "If it is stale, the test stops immediately."
 )
 
 obs_ticker = st.text_input(
@@ -361,8 +404,6 @@ if st.button(
             obs_ticker
         )
 
-        start_time = now_local()
-
         start_sample = get_latest_sample(
             obs_ticker
         )
@@ -371,7 +412,37 @@ if st.button(
             st.error(
                 "Could not get a starting market sample."
             )
+
+        elif not is_sample_fresh(
+            start_sample["timestamp"]
+        ):
+            age_seconds = sample_age_seconds(
+                start_sample["timestamp"]
+            )
+
+            st.warning(
+                "⏸️ Market data is not live right now — "
+                "test later."
+            )
+
+            st.write(
+                "Latest Yahoo sample: "
+                f"{fmt_time(start_sample['timestamp'])}"
+            )
+
+            st.write(
+                "Sample age: "
+                f"{age_seconds / 60:.1f} minutes"
+            )
+
+            st.write(
+                "The app stopped before the 60-second wait, "
+                "so this test was not added to accuracy."
+            )
+
         else:
+            start_time = now_local()
+
             start_price = start_sample[
                 "price"
             ]
@@ -399,12 +470,6 @@ if st.button(
                 bias = "NEUTRAL"
                 bullish = None
                 bearish = None
-
-                st.warning(
-                    "Short-term bias was unavailable, "
-                    "so this observation will not count "
-                    "toward directional accuracy."
-                )
             else:
                 bias = analysis["bias"]
                 bullish = analysis["bullish"]
@@ -506,13 +571,6 @@ if st.button(
                     st.info(
                         "⏸️ Result: NO FRESH DATA"
                     )
-
-                    st.write(
-                        "Yahoo Finance did not publish "
-                        "a newer 1-minute sample during "
-                        "this test."
-                    )
-
                 else:
                     st.write(
                         f"Change: "
@@ -553,8 +611,7 @@ if st.button(
                 elif evaluation == "FLAT":
                     st.info(
                         "➖ Fresh data was received, "
-                        "but price finished flat. "
-                        "Not counted as a match or miss."
+                        "but the price finished flat."
                     )
 
                 else:
@@ -697,6 +754,7 @@ if st.session_state.observations:
         st.write(
             f"Misses: {misses}"
         )
+
     else:
         st.info(
             "No directional tests "
@@ -820,8 +878,8 @@ else:
 
 
 st.caption(
-    "Paper-testing only. NO FRESH DATA means "
-    "Yahoo Finance did not provide a newer 1-minute "
-    "market sample during the observation. Those tests "
-    "are excluded from the accuracy calculation."
-)
+    "Paper-testing only. The app checks data freshness "
+    "before starting the 60-second wait. A Yahoo sample "
+    "older than 3 minutes is treated as stale, so the test "
+    "stops immediately instead of wasting a minute."
+                )
