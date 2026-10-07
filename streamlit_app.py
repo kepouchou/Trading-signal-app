@@ -1,12 +1,14 @@
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
+
 TZ = ZoneInfo("America/New_York")
+MAX_FRESH_AGE_SECONDS = 180
 
 
 def now_local():
@@ -62,13 +64,10 @@ def sample_age_seconds(sample_time):
     )
 
 
-def is_sample_fresh(
-    sample_time,
-    max_age_seconds=180,
-):
+def is_sample_fresh(sample_time):
     return (
         sample_age_seconds(sample_time)
-        <= max_age_seconds
+        <= MAX_FRESH_AGE_SECONDS
     )
 
 
@@ -183,18 +182,15 @@ def analyze_short_term(ticker):
         and bullish_score > bearish_score
     ):
         bias = "BULLISH"
-
     elif (
         bearish_score >= 75
         and bearish_score > bullish_score
     ):
         bias = "BEARISH"
-
     else:
         bias = "NEUTRAL"
 
     return {
-        "ticker": ticker,
         "price": float(latest["Close"]),
         "rsi": float(latest["RSI7"]),
         "macd": float(latest["MACD"]),
@@ -217,21 +213,18 @@ def analyze_short_term(ticker):
     }
 
 
-def evaluate_alignment(
-    bias,
-    movement,
-):
+def evaluate_forecast(forecast, movement):
     if movement == "NO FRESH DATA":
         return "NO FRESH DATA"
 
-    if bias == "BULLISH":
+    if forecast == "BULLISH":
         if movement == "UP":
             return "MATCH"
         if movement == "DOWN":
             return "MISS"
         return "FLAT"
 
-    if bias == "BEARISH":
+    if forecast == "BEARISH":
         if movement == "DOWN":
             return "MATCH"
         if movement == "UP":
@@ -242,79 +235,56 @@ def evaluate_alignment(
 
 
 st.set_page_config(
-    page_title="Short-Term Paper Signal App",
+    page_title="Next-Minute Paper Forecast",
     page_icon="📈",
     layout="wide",
 )
 
-st.title(
-    "📈 Short-Term Paper Signal App"
-)
+st.title("📈 Next-Minute Paper Forecast")
 
 st.caption(
-    "Paper-testing and educational use only. "
-    "This app uses 1-minute Yahoo Finance data. "
-    "Scores are not probabilities and do not predict "
-    "Pocket Option OTC prices."
+    "Paper/demo testing only. This uses 1-minute Yahoo Finance "
+    "stock data to estimate a short-term BULLISH, BEARISH, or "
+    "NEUTRAL bias for the next observation minute. It is not a "
+    "guaranteed prediction or a win probability."
 )
 
-if "observations" not in st.session_state:
-    st.session_state.observations = []
+if "forecast_log" not in st.session_state:
+    st.session_state.forecast_log = []
 
 
-st.subheader(
-    "🔎 Check One Stock"
-)
+st.subheader("🔎 Check Current Short-Term Bias")
 
 ticker = st.text_input(
-    "Enter a stock ticker:",
+    "Stock ticker:",
     "MSFT",
     key="signal_ticker",
 ).upper().strip()
 
-if st.button(
-    "Check Short-Term Signal"
-):
+if st.button("Check Current Bias"):
     try:
-        result = analyze_short_term(
-            ticker
-        )
+        sample = get_latest_sample(ticker)
+        result = analyze_short_term(ticker)
 
-        sample = get_latest_sample(
-            ticker
-        )
-
-        if result is None or sample is None:
+        if sample is None or result is None:
             st.error(
                 "Not enough 1-minute market data was found."
             )
-        else:
-            age_seconds = sample_age_seconds(
-                sample["timestamp"]
+
+        elif not is_sample_fresh(sample["timestamp"]):
+            st.warning(
+                "⏸️ Market data is not live right now — test later."
             )
 
-            if not is_sample_fresh(
-                sample["timestamp"]
-            ):
-                st.warning(
-                    "⚠️ Market data is not live right now. "
-                    "The latest Yahoo sample is too old for "
-                    "a reliable 60-second paper test."
-                )
+            st.write(
+                "Latest Yahoo sample: "
+                f"{fmt_time(sample['timestamp'])}"
+            )
 
-                st.write(
-                    "Latest Yahoo sample: "
-                    f"{fmt_time(sample['timestamp'])}"
-                )
-
-                st.write(
-                    "Sample age: "
-                    f"{age_seconds / 60:.1f} minutes"
-                )
-
+        else:
             st.metric(
                 "Latest price",
-                f"${result['price']:.4f}",
+                f"${sample['price']:.4f}",
             )
 
             col1, col2 = st.columns(2)
@@ -324,49 +294,27 @@ if st.button(
                     "📈 Bullish Score",
                     f"{result['bullish']} / 100",
                 )
-                st.progress(
-                    result["bullish"] / 100
-                )
 
             with col2:
                 st.metric(
                     "📉 Bearish Score",
                     f"{result['bearish']} / 100",
                 )
-                st.progress(
-                    result["bearish"] / 100
-                )
 
             if result["bias"] == "BULLISH":
                 st.success(
-                    "📈 PAPER BULLISH ALIGNMENT"
+                    "📈 Current paper bias: BULLISH"
                 )
+
             elif result["bias"] == "BEARISH":
                 st.warning(
-                    "📉 PAPER BEARISH ALIGNMENT"
+                    "📉 Current paper bias: BEARISH"
                 )
+
             else:
                 st.info(
-                    "⚖️ MIXED / NEUTRAL"
+                    "⚖️ Current paper bias: NEUTRAL"
                 )
-
-            st.write(
-                f"RSI(7): {result['rsi']:.2f}"
-            )
-
-            st.write(
-                f"MACD: {result['macd']:.4f}"
-            )
-
-            st.write(
-                "MACD signal line: "
-                f"{result['macd_signal']:.4f}"
-            )
-
-            st.write(
-                "3-minute momentum: "
-                f"{result['momentum3']:.4f}"
-            )
 
             st.line_chart(
                 result["chart"]
@@ -380,308 +328,314 @@ if st.button(
 
 st.divider()
 
-st.subheader(
-    "⏱️ 60-Second Paper Observation"
-)
+st.subheader("⏱️ Next 60-Second Forecast Test")
 
 st.write(
-    "Before waiting 60 seconds, the app checks whether "
-    "Yahoo's newest 1-minute market sample is fresh. "
-    "If it is stale, the test stops immediately."
+    "Stage 1: observe for 60 seconds. "
+    "Then the app calculates a forecast for the NEXT 60 seconds. "
+    "Stage 2: wait another 60 seconds and automatically verify "
+    "whether that forecast matched the actual direction."
 )
 
-obs_ticker = st.text_input(
-    "Ticker for 60-second observation:",
+forecast_ticker = st.text_input(
+    "Ticker for forecast test:",
     "MSFT",
-    key="observation_ticker",
+    key="forecast_ticker",
 ).upper().strip()
 
-if st.button(
-    "Start 60-Second Observation"
-):
+if st.button("Run Next 60-Second Forecast Test"):
     try:
-        analysis = analyze_short_term(
-            obs_ticker
+        initial_sample = get_latest_sample(
+            forecast_ticker
         )
 
-        start_sample = get_latest_sample(
-            obs_ticker
-        )
-
-        if start_sample is None:
+        if initial_sample is None:
             st.error(
-                "Could not get a starting market sample."
+                "Could not get the initial market sample."
             )
 
         elif not is_sample_fresh(
-            start_sample["timestamp"]
+            initial_sample["timestamp"]
         ):
-            age_seconds = sample_age_seconds(
-                start_sample["timestamp"]
-            )
-
             st.warning(
-                "⏸️ Market data is not live right now — "
-                "test later."
-            )
-
-            st.write(
-                "Latest Yahoo sample: "
-                f"{fmt_time(start_sample['timestamp'])}"
-            )
-
-            st.write(
-                "Sample age: "
-                f"{age_seconds / 60:.1f} minutes"
-            )
-
-            st.write(
-                "The app stopped before the 60-second wait, "
-                "so this test was not added to accuracy."
+                "⏸️ Market data is not live right now — test later."
             )
 
         else:
-            start_time = now_local()
-
-            start_price = start_sample[
-                "price"
-            ]
-
-            start_data_time = start_sample[
-                "timestamp"
-            ]
+            stage1_start = now_local()
 
             st.info(
-                "Observation started at "
-                f"{fmt_time(start_time)}"
+                "Stage 1 started at "
+                f"{fmt_time(stage1_start)}. "
+                "Collecting 60 seconds of fresh data..."
             )
-
-            st.write(
-                f"Starting price: "
-                f"${start_price:.4f}"
-            )
-
-            st.write(
-                "Yahoo sample time: "
-                f"{fmt_time(start_data_time)}"
-            )
-
-            if analysis is None:
-                bias = "NEUTRAL"
-                bullish = None
-                bearish = None
-            else:
-                bias = analysis["bias"]
-                bullish = analysis["bullish"]
-                bearish = analysis["bearish"]
-
-                st.write(
-                    f"Paper bias at start: {bias}"
-                )
-
-                st.write(
-                    f"Bullish: {bullish} / 100"
-                )
-
-                st.write(
-                    f"Bearish: {bearish} / 100"
-                )
 
             with st.spinner(
-                "Observing for 60 seconds..."
+                "Collecting the first 60 seconds..."
             ):
                 time.sleep(60)
 
-            end_time = now_local()
-
-            end_sample = get_latest_sample(
-                obs_ticker
+            forecast_sample = get_latest_sample(
+                forecast_ticker
             )
 
-            if end_sample is None:
+            if forecast_sample is None:
                 st.error(
-                    "Could not get an ending market sample."
+                    "Could not get the forecast-time market sample."
                 )
+
+            elif (
+                forecast_sample["timestamp"]
+                <= initial_sample["timestamp"]
+            ):
+                st.warning(
+                    "⏸️ NO FRESH DATA. No forecast was created."
+                )
+
             else:
-                end_price = end_sample[
-                    "price"
-                ]
-
-                end_data_time = end_sample[
-                    "timestamp"
-                ]
-
-                fresh_data = (
-                    end_data_time
-                    > start_data_time
+                analysis = analyze_short_term(
+                    forecast_ticker
                 )
 
-                if not fresh_data:
-                    change = 0.0
-                    movement = "NO FRESH DATA"
+                if analysis is None:
+                    st.error(
+                        "Could not calculate the short-term forecast."
+                    )
+
                 else:
-                    change = (
-                        end_price
-                        - start_price
+                    forecast = analysis["bias"]
+                    bullish = analysis["bullish"]
+                    bearish = analysis["bearish"]
+
+                    forecast_start_time = now_local()
+                    forecast_start_data_time = (
+                        forecast_sample["timestamp"]
+                    )
+                    forecast_start_price = (
+                        forecast_sample["price"]
                     )
 
-                    if change > 0:
-                        movement = "UP"
-                    elif change < 0:
-                        movement = "DOWN"
-                    else:
-                        movement = "FLAT"
-
-                evaluation = (
-                    evaluate_alignment(
-                        bias,
-                        movement,
+                    forecast_end_label = (
+                        forecast_start_time
+                        + timedelta(seconds=60)
                     )
-                )
 
-                st.subheader(
-                    "60-Second Result"
-                )
-
-                st.write(
-                    "Observation time: "
-                    f"{fmt_time(start_time)} "
-                    "→ "
-                    f"{fmt_time(end_time)}"
-                )
-
-                st.write(
-                    "Yahoo sample time: "
-                    f"{fmt_time(start_data_time)} "
-                    "→ "
-                    f"{fmt_time(end_data_time)}"
-                )
-
-                st.write(
-                    f"Start: "
-                    f"${start_price:.4f}"
-                )
-
-                st.write(
-                    f"End: "
-                    f"${end_price:.4f}"
-                )
-
-                if movement == "NO FRESH DATA":
-                    st.info(
-                        "⏸️ Result: NO FRESH DATA"
+                    st.subheader(
+                        "🔮 Next 60-Second Forecast"
                     )
-                else:
+
                     st.write(
-                        f"Change: "
-                        f"{change:.4f}"
+                        "Forecast window: "
+                        f"{fmt_time(forecast_start_time)} "
+                        "→ "
+                        f"{fmt_time(forecast_end_label)}"
                     )
 
-                    if movement == "UP":
+                    st.write(
+                        f"Forecast start price: "
+                        f"${forecast_start_price:.4f}"
+                    )
+
+                    st.write(
+                        f"Bullish score: "
+                        f"{bullish} / 100"
+                    )
+
+                    st.write(
+                        f"Bearish score: "
+                        f"{bearish} / 100"
+                    )
+
+                    if forecast == "BULLISH":
                         st.success(
-                            "📈 Result: UP"
+                            "📈 Forecast bias: BULLISH"
                         )
-                    elif movement == "DOWN":
+
+                    elif forecast == "BEARISH":
                         st.warning(
-                            "📉 Result: DOWN"
+                            "📉 Forecast bias: BEARISH"
                         )
+
                     else:
                         st.info(
-                            "➖ Result: FLAT"
+                            "⚖️ Forecast bias: NEUTRAL"
                         )
 
-                if evaluation == "MATCH":
-                    st.success(
-                        "✅ Paper bias matched "
-                        "the observed direction."
+                    st.caption(
+                        "Paper forecast only — not a trade instruction."
                     )
 
-                elif evaluation == "MISS":
-                    st.error(
-                        "❌ Paper bias did not match "
-                        "the observed direction."
+                    with st.spinner(
+                        "Waiting 60 seconds to verify the forecast..."
+                    ):
+                        time.sleep(60)
+
+                    verify_time = now_local()
+
+                    end_sample = get_latest_sample(
+                        forecast_ticker
                     )
 
-                elif evaluation == "NO FRESH DATA":
-                    st.info(
-                        "⏸️ Not counted in accuracy "
-                        "because there was no fresh data."
-                    )
+                    if end_sample is None:
+                        st.error(
+                            "Could not get the verification market sample."
+                        )
 
-                elif evaluation == "FLAT":
-                    st.info(
-                        "➖ Fresh data was received, "
-                        "but the price finished flat."
-                    )
+                    elif (
+                        end_sample["timestamp"]
+                        <= forecast_start_data_time
+                    ):
+                        movement = "NO FRESH DATA"
+                        evaluation = "NO FRESH DATA"
 
-                else:
-                    st.info(
-                        "⚖️ Neutral paper bias. "
-                        "Not counted in accuracy."
-                    )
+                        st.info(
+                            "⏸️ Verification result: NO FRESH DATA"
+                        )
 
-                st.session_state.observations.append(
-                    {
-                        "Start Time": (
-                            start_time.strftime(
+                    else:
+                        forecast_end_price = (
+                            end_sample["price"]
+                        )
+
+                        change = (
+                            forecast_end_price
+                            - forecast_start_price
+                        )
+
+                        if change > 0:
+                            movement = "UP"
+
+                        elif change < 0:
+                            movement = "DOWN"
+
+                        else:
+                            movement = "FLAT"
+
+                        evaluation = evaluate_forecast(
+                            forecast,
+                            movement,
+                        )
+
+                        st.subheader(
+                            "✅ Forecast Verification"
+                        )
+
+                        st.write(
+                            "Verification time: "
+                            f"{fmt_time(verify_time)}"
+                        )
+
+                        st.write(
+                            f"Forecast start: "
+                            f"${forecast_start_price:.4f}"
+                        )
+
+                        st.write(
+                            f"Verification price: "
+                            f"${forecast_end_price:.4f}"
+                        )
+
+                        if movement == "UP":
+                            st.success(
+                                "📈 Actual movement: UP"
+                            )
+
+                        elif movement == "DOWN":
+                            st.warning(
+                                "📉 Actual movement: DOWN"
+                            )
+
+                        else:
+                            st.info(
+                                "➖ Actual movement: FLAT"
+                            )
+
+                        if evaluation == "MATCH":
+                            st.success(
+                                "✅ Forecast MATCHED."
+                            )
+
+                        elif evaluation == "MISS":
+                            st.error(
+                                "❌ Forecast MISSED."
+                            )
+
+                        elif evaluation == "FLAT":
+                            st.info(
+                                "➖ Flat result. Not counted."
+                            )
+
+                        else:
+                            st.info(
+                                "⚖️ Neutral forecast. Not counted."
+                            )
+
+                    end_data_time_text = None
+                    end_price_for_log = None
+                    change_for_log = None
+
+                    if end_sample is not None:
+                        end_data_time_text = (
+                            end_sample["timestamp"].strftime(
                                 "%Y-%m-%d %I:%M:%S %p"
                             )
-                        ),
-                        "End Time": (
-                            end_time.strftime(
-                                "%Y-%m-%d %I:%M:%S %p"
-                            )
-                        ),
-                        "Start Data Time": (
-                            start_data_time.strftime(
-                                "%Y-%m-%d %I:%M:%S %p"
-                            )
-                        ),
-                        "End Data Time": (
-                            end_data_time.strftime(
-                                "%Y-%m-%d %I:%M:%S %p"
-                            )
-                        ),
-                        "Ticker": obs_ticker,
-                        "Start Price": round(
-                            start_price,
+                        )
+
+                        end_price_for_log = round(
+                            end_sample["price"],
                             4,
-                        ),
-                        "End Price": round(
-                            end_price,
-                            4,
-                        ),
-                        "Change": round(
-                            change,
-                            4,
-                        ),
-                        "Movement": movement,
-                        "Bullish": bullish,
-                        "Bearish": bearish,
-                        "Paper Bias": bias,
-                        "Evaluation": evaluation,
-                    }
-                )
+                        )
+
+                        if (
+                            end_sample["timestamp"]
+                            > forecast_start_data_time
+                        ):
+                            change_for_log = round(
+                                end_sample["price"]
+                                - forecast_start_price,
+                                4,
+                            )
+
+                    st.session_state.forecast_log.append(
+                        {
+                            "Ticker": forecast_ticker,
+                            "Forecast Created": (
+                                forecast_start_time.strftime(
+                                    "%Y-%m-%d %I:%M:%S %p"
+                                )
+                            ),
+                            "Forecast": forecast,
+                            "Bullish": bullish,
+                            "Bearish": bearish,
+                            "Start Price": round(
+                                forecast_start_price,
+                                4,
+                            ),
+                            "End Data Time": end_data_time_text,
+                            "End Price": end_price_for_log,
+                            "Movement": movement,
+                            "Change": change_for_log,
+                            "Evaluation": evaluation,
+                        }
+                    )
 
     except Exception as exc:
         st.error(
-            f"Observation error: {exc}"
+            f"Forecast test error: {exc}"
         )
 
 
 st.divider()
 
-st.subheader(
-    "📊 Paper Accuracy Tracker"
-)
+st.subheader("📊 Forecast Accuracy Tracker")
 
-if st.session_state.observations:
-    observation_df = pd.DataFrame(
-        st.session_state.observations
+if st.session_state.forecast_log:
+    forecast_df = pd.DataFrame(
+        st.session_state.forecast_log
     )
 
-    directional = observation_df[
-        observation_df[
+    directional = forecast_df[
+        forecast_df[
             "Evaluation"
         ].isin(
             [
@@ -691,34 +645,19 @@ if st.session_state.observations:
         )
     ]
 
-    total = len(
-        directional
-    )
+    total = len(directional)
 
     matches = int(
         (
-            directional[
-                "Evaluation"
-            ]
+            directional["Evaluation"]
             == "MATCH"
         ).sum()
     )
 
     misses = int(
         (
-            directional[
-                "Evaluation"
-            ]
+            directional["Evaluation"]
             == "MISS"
-        ).sum()
-    )
-
-    stale_count = int(
-        (
-            observation_df[
-                "Evaluation"
-            ]
-            == "NO FRESH DATA"
         ).sum()
     )
 
@@ -729,13 +668,11 @@ if st.session_state.observations:
             * 100
         )
 
-        col1, col2, col3 = (
-            st.columns(3)
-        )
+        col1, col2, col3 = st.columns(3)
 
         with col1:
             st.metric(
-                "Directional Tests",
+                "Directional Forecasts",
                 total,
             )
 
@@ -747,7 +684,7 @@ if st.session_state.observations:
 
         with col3:
             st.metric(
-                "Paper Accuracy",
+                "Paper Forecast Accuracy",
                 f"{accuracy:.1f}%",
             )
 
@@ -757,129 +694,41 @@ if st.session_state.observations:
 
     else:
         st.info(
-            "No directional tests "
-            "have been counted yet."
-        )
-
-    st.metric(
-        "No Fresh Data Tests",
-        stale_count,
-    )
-
-    bullish_tests = directional[
-        directional[
-            "Paper Bias"
-        ]
-        == "BULLISH"
-    ]
-
-    bearish_tests = directional[
-        directional[
-            "Paper Bias"
-        ]
-        == "BEARISH"
-    ]
-
-    bullish_total = len(
-        bullish_tests
-    )
-
-    bearish_total = len(
-        bearish_tests
-    )
-
-    bullish_matches = int(
-        (
-            bullish_tests[
-                "Evaluation"
-            ]
-            == "MATCH"
-        ).sum()
-    )
-
-    bearish_matches = int(
-        (
-            bearish_tests[
-                "Evaluation"
-            ]
-            == "MATCH"
-        ).sum()
-    )
-
-    st.subheader(
-        "Direction Breakdown"
-    )
-
-    if bullish_total > 0:
-        bullish_accuracy = (
-            bullish_matches
-            / bullish_total
-            * 100
-        )
-
-        st.write(
-            "📈 Bullish tests: "
-            f"{bullish_matches} matches "
-            f"out of {bullish_total} "
-            f"({bullish_accuracy:.1f}%)"
-        )
-    else:
-        st.write(
-            "📈 Bullish tests: 0"
-        )
-
-    if bearish_total > 0:
-        bearish_accuracy = (
-            bearish_matches
-            / bearish_total
-            * 100
-        )
-
-        st.write(
-            "📉 Bearish tests: "
-            f"{bearish_matches} matches "
-            f"out of {bearish_total} "
-            f"({bearish_accuracy:.1f}%)"
-        )
-    else:
-        st.write(
-            "📉 Bearish tests: 0"
+            "No directional forecasts have been verified yet."
         )
 
     st.dataframe(
-        observation_df,
+        forecast_df,
         use_container_width=True,
         hide_index=True,
     )
 
     st.download_button(
-        "Download Observation Log CSV",
+        "Download Forecast Log CSV",
         data=(
-            observation_df
+            forecast_df
             .to_csv(index=False)
             .encode("utf-8")
         ),
-        file_name=(
-            "short_term_observation_log.csv"
-        ),
+        file_name="next_60_second_forecast_log.csv",
         mime="text/csv",
     )
 
     if st.button(
-        "Clear Observation Log"
+        "Clear Forecast Log"
     ):
-        st.session_state.observations = []
+        st.session_state.forecast_log = []
         st.rerun()
 
 else:
     st.info(
-        "No observations yet."
+        "No forecast tests yet."
     )
 
 
 st.caption(
-    "Paper-testing only. The app checks data freshness "
-    "before starting the 60-second wait. A Yahoo sample "
-    "older than 3 minutes is treated as stale, so the test "
-    "stops immediately instead of wasting a minute."
-                )
+    "Paper/demo testing only. The forecast is calculated "
+    "before the verification minute happens, but it cannot "
+    "know future prices with certainty. Yahoo Finance data "
+    "may be delayed and does not match Pocket Option OTC pricing."
+                    )
